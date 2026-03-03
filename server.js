@@ -84,6 +84,10 @@ seedDatabase();
 // ==========================================
 // 4. SECURE API ENDPOINTS
 // ==========================================
+// A simple ping route for Uptime Monitors
+app.get('/', (req, res) => {
+    res.status(200).send('IFA Backend is awake and running perfectly!');
+});
 app.post('/login', async (req, res) => {
     const { role, username, password } = req.body;
 
