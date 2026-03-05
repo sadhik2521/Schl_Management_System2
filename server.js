@@ -5,7 +5,6 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken'); 
 
 const app = express();
-// Render assigns a dynamic port, so we must use process.env.PORT
 const PORT = process.env.PORT || 3000; 
 const JWT_SECRET = 'super_secret_ifa_key_2026'; 
 
@@ -20,7 +19,6 @@ const mongoURI = 'mongodb+srv://sadhik:github2521@schoolmanagementsystem.cfkbn3c
 mongoose.connect(mongoURI)
     .then(() => console.log('✅ Connected to MongoDB Atlas successfully!'))
     .catch(err => console.error('❌ MongoDB connection error:', err));
-
 
 // ==========================================
 // 2. DATABASE SCHEMAS
@@ -47,48 +45,11 @@ const User = mongoose.model('User', new mongoose.Schema({
 }));
 
 // ==========================================
-// 3. AUTO-SEED DATABASE
-// ==========================================
-async function seedDatabase() {
-    try {
-        const userCount = await User.countDocuments();
-        
-        if (userCount === 0) {
-            console.log("Empty database detected. Generating initial admin account...");
-
-            const hashedAdminPassword = await bcrypt.hash('12345', 10);
-            
-            const adminData = await AdminProfile.create({ 
-                name: 'System Admin', 
-                email: 'admin@ifa.edu', 
-                permissions: ['All']
-            });
-
-            await User.create({ 
-                role: 'admin', 
-                username: 'admin', 
-                password: hashedAdminPassword, 
-                profileId: adminData._id 
-            });
-
-            console.log("✅ Initial Admin created (Username: admin, Password: 12345)");
-        } else {
-            console.log("📊 Database already contains data. Skipping reset.");
-        }
-    } catch (error) {
-        console.error("❌ Error during startup:", error);
-    }
-}
-seedDatabase();
-
-// ==========================================
-// 4. SECURE API ENDPOINTS
+// 3. SECURE API ENDPOINTS
 // ==========================================
 
-// A simple ping route for Uptime Monitors
-app.get('/', (req, res) => {
-    res.status(200).send('IFA Backend is awake and running perfectly!');
-});
+// Uptime Ping
+app.get('/', (req, res) => res.status(200).send('IFA Backend is awake!'));
 
 app.post('/login', async (req, res) => {
     const { role, username, password } = req.body;
@@ -105,9 +66,12 @@ app.post('/login', async (req, res) => {
         if (!isPasswordValid) return res.status(401).json({ message: 'Invalid credentials' });
 
         let profileData = null;
-        if (role === 'student') profileData = await StudentProfile.findById(user.profileId);
-        else if (role === 'staff') profileData = await StaffProfile.findById(user.profileId);
-        else if (role === 'admin') profileData = await AdminProfile.findById(user.profileId);
+        // Safety check to prevent crash on bad logins
+        if (user.profileId && mongoose.Types.ObjectId.isValid(user.profileId)) {
+            if (role === 'student') profileData = await StudentProfile.findById(user.profileId);
+            else if (role === 'staff') profileData = await StaffProfile.findById(user.profileId);
+            else if (role === 'admin') profileData = await AdminProfile.findById(user.profileId);
+        }
 
         const token = jwt.sign(
             { userId: user._id, role: user.role, profileId: user.profileId }, 
@@ -116,7 +80,7 @@ app.post('/login', async (req, res) => {
 
         res.status(200).json({ 
             message: 'Authentication successful', token: token, 
-            user: { id: user.profileId, role: user.role, name: profileData.name } 
+            user: { id: user.profileId, role: user.role, name: profileData ? profileData.name : 'Unknown User' } 
         });
     } catch (error) {
         res.status(500).json({ message: 'Server error during authentication' });
@@ -128,27 +92,20 @@ app.post('/api/users/add', async (req, res) => {
 
     try {
         const existingUser = await User.findOne({ username });
-        if (existingUser) return res.status(400).json({ message: 'Register Number / Username already taken' });
+        if (existingUser) return res.status(400).json({ message: 'Username already taken' });
 
         const hashedPassword = await bcrypt.hash(password, 10);
-
         let savedProfile;
+
         if (role === 'student') {
-            savedProfile = await StudentProfile.create({ 
-                name, email, major: major || 'Undeclared', enrollmentDate: new Date().toLocaleDateString(), recentWork: [] 
-            });
+            savedProfile = await StudentProfile.create({ name, email, major: major || 'Undeclared', enrollmentDate: new Date().toLocaleDateString(), recentWork: [] });
         } else if (role === 'staff') {
-            savedProfile = await StaffProfile.create({ 
-                name, email, department: department || 'General Faculty', classesTaught: [] 
-            });
+            savedProfile = await StaffProfile.create({ name, email, department: department || 'General Faculty', classesTaught: [] });
         } else if (role === 'admin') {
             savedProfile = await AdminProfile.create({ name, email, permissions: [] });
         }
 
-        await User.create({
-            role, username, password: hashedPassword, profileId: savedProfile._id
-        });
-
+        await User.create({ role, username, password: hashedPassword, profileId: savedProfile._id });
         res.status(201).json({ message: `${role.toUpperCase()} account created successfully!` });
 
     } catch (error) {
@@ -156,72 +113,57 @@ app.post('/api/users/add', async (req, res) => {
     }
 });
 
+// Student Profile Route
 app.get('/api/student/:id', async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ message: 'Invalid ID' });
         const profile = await StudentProfile.findById(req.params.id);
         if (profile) res.status(200).json(profile);
         else res.status(404).json({ message: 'Profile not found' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error' });
-    }
+    } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// THIS IS THE MISSING ROUTE FOR THE STAFF DASHBOARD
+// Staff Profile Route
 app.get('/api/staff/:id', async (req, res) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) return res.status(400).json({ message: 'Invalid ID' });
         const profile = await StaffProfile.findById(req.params.id);
         if (profile) res.status(200).json(profile);
         else res.status(404).json({ message: 'Profile not found' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error' });
-    }
+    } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// ADMIN ROUTE: GET ALL USERS FOR DIRECTORY
+// Admin Directory Route (Now crash-proof)
 app.get('/api/users/all', async (req, res) => {
     try {
         const users = await User.find({ role: { $ne: 'admin' } }); 
-        
-        let directory = [];
-        let studentCount = 0;
-        let staffCount = 0;
+        let directory = [], studentCount = 0, staffCount = 0;
 
         for (let u of users) {
-            let name = "Unknown";
-            let email = "Unknown";
+            let name = "Unknown", email = "Unknown";
+            
+            // Try/Catch block prevents corrupted users from crashing the server
+            try {
+                if (u.profileId && mongoose.Types.ObjectId.isValid(u.profileId)) {
+                    if (u.role === 'student') {
+                        const profile = await StudentProfile.findById(u.profileId);
+                        if (profile) { name = profile.name; email = profile.email; }
+                        studentCount++;
+                    } else if (u.role === 'staff') {
+                        const profile = await StaffProfile.findById(u.profileId);
+                        if (profile) { name = profile.name; email = profile.email; }
+                        staffCount++;
+                    }
+                }
+            } catch (err) { console.error("Skipped corrupted user:", u.username); }
 
-            if (u.role === 'student') {
-                const profile = await StudentProfile.findById(u.profileId);
-                if (profile) { name = profile.name; email = profile.email; }
-                studentCount++;
-            } else if (u.role === 'staff') {
-                const profile = await StaffProfile.findById(u.profileId);
-                if (profile) { name = profile.name; email = profile.email; }
-                staffCount++;
-            }
-
-            directory.push({
-                name: name,
-                username: u.username,
-                email: email,
-                role: u.role
-            });
+            directory.push({ name, username: u.username, email, role: u.role });
         }
 
-        res.status(200).json({
-            stats: { students: studentCount, staff: staffCount },
-            directory: directory
-        });
-
+        res.status(200).json({ stats: { students: studentCount, staff: staffCount }, directory });
     } catch (error) {
-        console.error("Directory fetch error:", error);
         res.status(500).json({ message: 'Error fetching directory data' });
     }
 });
 
-// ==========================================
-// 5. START SERVER
-// ==========================================
-app.listen(PORT, () => {
-    console.log(`🚀 Secure Server is running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Secure Server is running on port ${PORT}`));
