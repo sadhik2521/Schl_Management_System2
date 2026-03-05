@@ -84,15 +84,16 @@ seedDatabase();
 // ==========================================
 // 4. SECURE API ENDPOINTS
 // ==========================================
+
 // A simple ping route for Uptime Monitors
 app.get('/', (req, res) => {
     res.status(200).send('IFA Backend is awake and running perfectly!');
 });
+
 app.post('/login', async (req, res) => {
     const { role, username, password } = req.body;
 
     try {
-        // Case-insensitive search for username
         const user = await User.findOne({ 
             role, 
             username: { $regex: new RegExp(`^${username}$`, 'i') } 
@@ -162,6 +163,59 @@ app.get('/api/student/:id', async (req, res) => {
         else res.status(404).json({ message: 'Profile not found' });
     } catch (error) {
         res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// THIS IS THE MISSING ROUTE FOR THE STAFF DASHBOARD
+app.get('/api/staff/:id', async (req, res) => {
+    try {
+        const profile = await StaffProfile.findById(req.params.id);
+        if (profile) res.status(200).json(profile);
+        else res.status(404).json({ message: 'Profile not found' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// ADMIN ROUTE: GET ALL USERS FOR DIRECTORY
+app.get('/api/users/all', async (req, res) => {
+    try {
+        const users = await User.find({ role: { $ne: 'admin' } }); 
+        
+        let directory = [];
+        let studentCount = 0;
+        let staffCount = 0;
+
+        for (let u of users) {
+            let name = "Unknown";
+            let email = "Unknown";
+
+            if (u.role === 'student') {
+                const profile = await StudentProfile.findById(u.profileId);
+                if (profile) { name = profile.name; email = profile.email; }
+                studentCount++;
+            } else if (u.role === 'staff') {
+                const profile = await StaffProfile.findById(u.profileId);
+                if (profile) { name = profile.name; email = profile.email; }
+                staffCount++;
+            }
+
+            directory.push({
+                name: name,
+                username: u.username,
+                email: email,
+                role: u.role
+            });
+        }
+
+        res.status(200).json({
+            stats: { students: studentCount, staff: staffCount },
+            directory: directory
+        });
+
+    } catch (error) {
+        console.error("Directory fetch error:", error);
+        res.status(500).json({ message: 'Error fetching directory data' });
     }
 });
 
