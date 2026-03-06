@@ -165,5 +165,34 @@ app.get('/api/users/all', async (req, res) => {
         res.status(500).json({ message: 'Error fetching directory data' });
     }
 });
+// ==========================================
+// ADMIN ROUTE: DELETE USER
+// ==========================================
+app.delete('/api/users/:username', async (req, res) => {
+    try {
+        // 1. Find the user by their Register Number (username)
+        const user = await User.findOne({ username: req.params.username });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        
+        // 2. Prevent deleting the Master Admin
+        if (user.role === 'admin') {
+            return res.status(403).json({ message: 'Cannot delete master admin' });
+        }
 
+        // 3. Delete their specific profile data
+        if (user.role === 'student') {
+            await StudentProfile.findByIdAndDelete(user.profileId);
+        } else if (user.role === 'staff') {
+            await StaffProfile.findByIdAndDelete(user.profileId);
+        }
+
+        // 4. Delete their login credentials
+        await User.findByIdAndDelete(user._id);
+
+        res.status(200).json({ message: 'User permanently deleted.' });
+    } catch (error) {
+        console.error("Delete error:", error);
+        res.status(500).json({ message: 'Error deleting user' });
+    }
+});
 app.listen(PORT, () => console.log(`🚀 Secure Server is running on port ${PORT}`));
