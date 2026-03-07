@@ -8,7 +8,6 @@ const app = express();
 const PORT = process.env.PORT || 3000; 
 const JWT_SECRET = 'super_secret_ifa_key_2026'; 
 
-// IMPORTANT: We increased the limit to 10mb so the server can accept image uploads!
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
@@ -23,7 +22,7 @@ mongoose.connect(mongoURI)
     .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // ==========================================
-// 2. DATABASE SCHEMAS (Updated with profilePhoto)
+// 2. DATABASE SCHEMAS
 // ==========================================
 const workSchema = new mongoose.Schema({ title: String, type: String, grade: String }, { _id: false });
 
@@ -78,7 +77,6 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/api/users/add', async (req, res) => {
-    // Added profilePhoto to the incoming request
     const { role, username, password, name, email, major, department, profilePhoto } = req.body;
 
     try {
@@ -88,7 +86,6 @@ app.post('/api/users/add', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         let savedProfile;
 
-        // Save the image string into the database
         if (role === 'student') {
             savedProfile = await StudentProfile.create({ name, email, major: major || 'Undeclared', enrollmentDate: new Date().toLocaleDateString(), profilePhoto: profilePhoto || '', recentWork: [] });
         } else if (role === 'staff') {
@@ -121,32 +118,60 @@ app.get('/api/staff/:id', async (req, res) => {
     } catch (error) { res.status(500).json({ message: 'Server error' }); }
 });
 
+// GET DIRECTORY DATA (Now includes specialization for the edit form)
 app.get('/api/users/all', async (req, res) => {
     try {
         const users = await User.find({ role: { $ne: 'admin' } }); 
         let directory = [], studentCount = 0, staffCount = 0;
 
         for (let u of users) {
-            let name = "Unknown", email = "Unknown";
+            let name = "Unknown", email = "Unknown", specialization = "";
             try {
                 if (u.profileId && mongoose.Types.ObjectId.isValid(u.profileId)) {
                     if (u.role === 'student') {
                         const profile = await StudentProfile.findById(u.profileId);
-                        if (profile) { name = profile.name; email = profile.email; }
+                        if (profile) { name = profile.name; email = profile.email; specialization = profile.major; }
                         studentCount++;
                     } else if (u.role === 'staff') {
                         const profile = await StaffProfile.findById(u.profileId);
-                        if (profile) { name = profile.name; email = profile.email; }
+                        if (profile) { name = profile.name; email = profile.email; specialization = profile.department; }
                         staffCount++;
                     }
                 }
             } catch (err) { console.error("Skipped corrupted user:", u.username); }
-            directory.push({ name, username: u.username, email, role: u.role });
+            directory.push({ name, username: u.username, email, role: u.role, specialization });
         }
         res.status(200).json({ stats: { students: studentCount, staff: staffCount }, directory });
     } catch (error) { res.status(500).json({ message: 'Error fetching directory data' }); }
 });
 
+// EDIT USER ROUTE
+app.put('/api/users/:username', async (req, res) => {
+    try {
+        const user = await User.findOne({ username: req.params.username });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        if (user.role === 'admin') return res.status(403).json({ message: 'Cannot edit master admin' });
+
+        const { name, email, major, department, profilePhoto } = req.body;
+
+        if (user.role === 'student') {
+            const updateData = { name, email, major };
+            if (profilePhoto) updateData.profilePhoto = profilePhoto;
+            await StudentProfile.findByIdAndUpdate(user.profileId, updateData);
+        } else if (user.role === 'staff') {
+            const updateData = { name, email, department };
+            if (profilePhoto) updateData.profilePhoto = profilePhoto;
+            await StaffProfile.findByIdAndUpdate(user.profileId, updateData);
+        }
+
+        res.status(200).json({ message: 'User details updated successfully!' });
+    } catch (error) { 
+        console.error("Update error:", error);
+        res.status(500).json({ message: 'Error updating user' }); 
+    }
+});
+
+// DELETE USER ROUTE
 app.delete('/api/users/:username', async (req, res) => {
     try {
         const user = await User.findOne({ username: req.params.username });
