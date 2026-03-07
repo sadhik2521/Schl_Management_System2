@@ -4,7 +4,9 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt'); 
 const jwt = require('jsonwebtoken'); 
 
-const app = express()
+const app = express();
+const PORT = process.env.PORT || 3000; 
+const JWT_SECRET = 'super_secret_ifa_key_2026'; 
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -185,4 +187,3 @@ app.delete('/api/users/:username', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`🚀 Secure Server is running on port ${PORT}`));
-
